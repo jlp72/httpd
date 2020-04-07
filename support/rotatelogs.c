@@ -29,6 +29,8 @@
 #include "apr_poll.h"
 #endif
 
+#include <sys/stat.h>
+
 #if APR_HAVE_STDLIB_H
 #include <stdlib.h>
 #endif
@@ -558,6 +560,52 @@ static const char *get_time_or_size(rotate_config_t *config,
     return NULL;
 }
 
+/*
+ * Get index of last modified file.
+ */
+int get_idx_last_file_mod(int num_file, const char *base_file)
+{
+    int file_name_len_max, last_idx_mod_file=0;
+    char *curr_file_name;
+    struct stat stat_info;
+    struct timespec time_mod_prev;
+
+    time_mod_prev.tv_sec = time_mod_prev.tv_nsec = 0;
+    file_name_len_max = strlen(base_file) + 5;
+    curr_file_name = malloc(sizeof(char) * file_name_len_max);
+    if ( curr_file_name == NULL )
+    {
+        return last_idx_mod_file;
+    }
+    memset(curr_file_name, 0, file_name_len_max);
+    if (num_file>1 && num_file<1000)
+    {
+        for (int curr_idx=0; curr_idx<num_file; curr_idx++)
+        {
+            if (curr_idx==0)
+            {
+                sprintf(curr_file_name, "%s", base_file);
+            }
+            else
+            {
+                sprintf(curr_file_name, "%s.%d", base_file, curr_idx);
+            }
+            if (!stat(curr_file_name, &stat_info))
+            {
+                if (time_mod_prev.tv_sec<stat_info.st_mtim.tv_sec ||
+                    ( time_mod_prev.tv_sec==stat_info.st_mtim.tv_sec && time_mod_prev.tv_nsec<=stat_info.st_mtim.tv_nsec)
+                   )
+                {
+                    time_mod_prev.tv_sec = stat_info.st_mtim.tv_sec;
+                    time_mod_prev.tv_nsec = stat_info.st_mtim.tv_nsec;
+                    last_idx_mod_file = curr_idx;
+                }
+            }
+        }
+    }
+    return --last_idx_mod_file;
+}
+
 int main (int argc, const char * const argv[])
 {
     char buf[BUFSIZE];
@@ -655,6 +703,11 @@ int main (int argc, const char * const argv[])
                                     opt->ind < argc - 1 ? 0 : 1)) != NULL) {
             usage(argv[0], err);
         }
+    }
+
+    if (config.num_files > 1)
+    {
+        status.fileNum = get_idx_last_file_mod(config.num_files, config.szLogRoot);
     }
 
     config.use_strftime = (strchr(config.szLogRoot, '%') != NULL);
